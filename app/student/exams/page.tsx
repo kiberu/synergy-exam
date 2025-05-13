@@ -3,72 +3,51 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
 import { fetchExams } from "@/lib/exam-service"
+import { listDocuments, COLLECTIONS } from "@/lib/appwrite"
 import type { Exam } from "@/lib/appwrite"
 import { ProtectedRoute } from "@/components/protected-route"
 import { useAuth } from "@/lib/auth-context"
 
 export default function ExamsList() {
   const [exams, setExams] = useState<Exam[]>([])
+  const [questionCountMap, setQuestionCountMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const { toast } = useToast()
   const { user } = useAuth()
 
   useEffect(() => {
-    // Fetch available exams
-    const loadExams = async () => {
+    async function loadData() {
       try {
-        // Check if Appwrite is configured
-        if (!process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || !process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID) {
-          // Fallback for when Appwrite is not configured
-          console.warn("Appwrite not configured, using mock data")
+        setLoading(true)
 
-          // Use mock data
-          const mockExams: Exam[] = [
-            {
-              $id: "exam1",
-              id: "exam1",
-              title: "Mathematics Midterm",
-              duration: 10,
-              createdBy: "demo-tutor",
-              createdAt: new Date().toISOString(),
-              questionCount: 5,
-            },
-            {
-              $id: "exam2",
-              id: "exam2",
-              title: "Physics Quiz",
-              duration: 15,
-              createdBy: "demo-tutor",
-              createdAt: new Date().toISOString(),
-              questionCount: 8,
-            },
-            {
-              $id: "exam3",
-              id: "exam3",
-              title: "Programming Fundamentals",
-              duration: 20,
-              createdBy: "demo-tutor",
-              createdAt: new Date().toISOString(),
-              questionCount: 10,
-            },
-          ]
-
-          setExams(mockExams)
-          setLoading(false)
-          return
-        }
-
+        // 1️⃣ Fetch all exams
         const examsData = await fetchExams()
         setExams(examsData)
+
+        // 2️⃣ Fetch all questions once
+        const { documents: questions } = await listDocuments(COLLECTIONS.QUESTIONS)
+
+        // 3️⃣ Build examId → count map
+        const map: Record<string, number> = {}
+        questions.forEach((q) => {
+          map[q.examId] = (map[q.examId] || 0) + 1
+        })
+        setQuestionCountMap(map)
       } catch (error) {
-        console.error("Error fetching exams:", error)
+        console.error("Error loading exams:", error)
         toast({
           title: "Error",
-          description: "Failed to load exams. Please try again.",
+          description: "Could not load exams. Please try again.",
           variant: "destructive",
         })
       } finally {
@@ -76,7 +55,7 @@ export default function ExamsList() {
       }
     }
 
-    loadExams()
+    loadData()
   }, [toast])
 
   const startExam = (examId: string) => {
@@ -86,7 +65,7 @@ export default function ExamsList() {
   if (loading) {
     return (
       <div className="container flex items-center justify-center min-h-screen">
-        <p>Loading available exams...</p>
+        <p>Loading available exams…</p>
       </div>
     )
   }
@@ -107,21 +86,27 @@ export default function ExamsList() {
         {exams.length === 0 ? (
           <Card>
             <CardContent className="py-8">
-              <p className="text-center text-muted-foreground">No exams are currently available.</p>
+              <p className="text-center text-muted-foreground">
+                No exams are currently available.
+              </p>
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {exams.map((exam) => (
-              <Card key={exam.id}>
+              <Card key={exam.$id}>
                 <CardHeader>
                   <CardTitle>{exam.title}</CardTitle>
                   <CardDescription>
-                    Duration: {exam.duration} minutes • {exam.questionCount} questions
+                    Duration: {exam.duration} minutes •{" "}
+                    {questionCountMap[exam.$id!] ?? 0} questions
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <Button onClick={() => startExam(exam.id)} className="w-full">
+                  <Button
+                    onClick={() => startExam(exam.$id!)}
+                    className="w-full"
+                  >
                     Start Exam
                   </Button>
                 </CardContent>

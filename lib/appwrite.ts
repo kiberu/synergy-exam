@@ -1,6 +1,5 @@
-// lib/appwrite.ts
-import 'dotenv/config'
-import {
+/// lib/appwrite.ts
+import { 
   Client,
   Account,
   Databases,
@@ -8,31 +7,25 @@ import {
   Permission,
   Role,
   Models,
-  Query,
-} from 'node-appwrite'
+  Query
+} from 'appwrite'
 
-// — Initialize Appwrite client —
-// Pull in your env vars (make sure you have APPWRITE_API_KEY set server-side!)
-const endpoint  = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!
-const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!
-const apiKey    = process.env.APPWRITE_API_KEY!
+const endpoint  = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT
+const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID
 
-if (!endpoint || !projectId || !apiKey) {
+if (!endpoint || !projectId) {
   console.error(
-    '❌ Missing env vars: NEXT_PUBLIC_APPWRITE_ENDPOINT, NEXT_PUBLIC_APPWRITE_PROJECT_ID, APPWRITE_API_KEY'
+    '[lib/appwrite] Missing NEXT_PUBLIC_APPWRITE_ENDPOINT or NEXT_PUBLIC_APPWRITE_PROJECT_ID'
   )
-  process.exit(1)
 }
 
-const client    = new Client()
-  .setEndpoint(endpoint)   // Your Appwrite endpoint
-  .setProject(projectId)   // Your project ID
-  .setKey(apiKey)          // Your secret API key
+const client = new Client()
+  .setEndpoint(endpoint ?? '')
+  .setProject(projectId ?? '')
 
 export const account   = new Account(client)
 export const databases = new Databases(client)
 
-// — Database & Collections IDs —
 export const DATABASE_ID = 'online_exam_db' as const
 export const COLLECTIONS = {
   USERS:       'users',
@@ -42,19 +35,20 @@ export const COLLECTIONS = {
 } as const
 export type CollectionId = typeof COLLECTIONS[keyof typeof COLLECTIONS]
 
-// Re-export Query helpers so callers can do:
-// import { Query } from '@/lib/appwrite'
 export { Query }
 
-// — CRUD Helpers —
-
-// Create a document, optionally scoped to a specific user
-export async function createDocument<T extends Omit<Models.Document, keyof Models.Document>>(
+/**
+ * Now T is constrained to exactly the shape that Appwrite.createDocument expects:
+ * “some subset of a Document’s own properties” (i.e. your custom fields).
+ */
+export async function createDocument<
+  T extends Omit<Models.Document, keyof Models.Document>
+>(
   collectionId: CollectionId,
   data: T,
   userId?: string
 ): Promise<Models.Document> {
-  const permissions = userId
+  const perms = userId
     ? [
         Permission.read(Role.user(userId)),
         Permission.update(Role.user(userId)),
@@ -67,11 +61,13 @@ export async function createDocument<T extends Omit<Models.Document, keyof Model
     collectionId,
     ID.unique(),
     data,
-    permissions
+    perms
   )
 }
 
-// List documents; pass in Query.* helpers which return strings
+/**
+ * List documents; pass in Query.* calls (which return strings).
+ */
 export async function listDocuments(
   collectionId: CollectionId,
   queries: string[] = []
@@ -79,7 +75,7 @@ export async function listDocuments(
   return databases.listDocuments(DATABASE_ID, collectionId, queries)
 }
 
-// Get a single document by ID
+/** Get a single document by ID. */
 export async function getDocument(
   collectionId: CollectionId,
   documentId: string
@@ -87,7 +83,7 @@ export async function getDocument(
   return databases.getDocument(DATABASE_ID, collectionId, documentId)
 }
 
-// Update a document by ID
+/** Update an existing document by ID. */
 export async function updateDocument<T>(
   collectionId: CollectionId,
   documentId: string,
@@ -96,13 +92,14 @@ export async function updateDocument<T>(
   return databases.updateDocument(DATABASE_ID, collectionId, documentId, data)
 }
 
-// Delete a document by ID
+/** Delete a document by ID. */
 export async function deleteDocument(
   collectionId: CollectionId,
   documentId: string
 ): Promise<void> {
   await databases.deleteDocument(DATABASE_ID, collectionId, documentId)
 }
+
 
 // — Your TypeScript model interfaces —
 // (so your components can `import type { Exam, Submission } from "@/lib/appwrite"`)

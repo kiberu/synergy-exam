@@ -68,7 +68,7 @@ export default function TutorLogin() {
                 placeholder="Enter your password"
                 required
               />
-              <p className="text-sm text-muted-foreground">For demo: use tutor@example.com / password</p>
+              {/* <p className="text-sm text-muted-foreground">For demo: use tutor@example.com / password</p> */}
             </div>
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Logging in..." : "Login"}
