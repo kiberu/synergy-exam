@@ -22,6 +22,7 @@ import {
 } from "@/lib/exam-service"
 import type { Exam, Question } from "@/lib/appwrite"
 import { format } from "date-fns"
+import { useAuth } from "@/lib/auth-context"
 
 type ExamWithQuestions = Exam & { questions: Question[] }
 
@@ -39,6 +40,7 @@ export default function ExamPage({
   const [timeLeft, setTimeLeft] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [examCompleted, setExamCompleted] = useState(false)
+  const { user } = useAuth()
 
   // load the exam from Appwrite
   useEffect(() => {
@@ -94,36 +96,53 @@ export default function ExamPage({
     currentQuestion > 0 && setCurrentQuestion((i) => i - 1)
 
   const handleSubmit = async () => {
-    if (!examData) return
-    setIsSubmitting(true)
-    try {
-      const studentInfo = JSON.parse(
-        sessionStorage.getItem("studentInfo")!
-      )
-      await submitExamAnswers({
-        examId:      examData.$id!,
-        userId:      studentInfo.id,
-        studentName: studentInfo.fullName,
-        studentEmail:studentInfo.email,
-        studentId:   studentInfo.studentId,
-        answers,
-      })
-      setExamCompleted(true)
-      toast({
-        title: "Submitted",
-        description: "Your exam has been submitted.",
-      })
-    } catch (err) {
-      console.error("Submit error:", err)
-      toast({
-        title: "Submit failed",
-        description: "Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSubmitting(false)
-    }
+  // 1) Make sure we have both exam data **and** a logged‐in user
+  if (!examData || !user) {
+    toast({
+      title: "Submission Error",
+      description: "You must be logged in as a student to submit the exam.",
+      variant: "destructive",
+    });
+    return;
   }
+
+  setIsSubmitting(true);
+
+  try {
+    // 2) Pull exactly what you need from `user`
+    const { id: userId, name: studentName, email: studentEmail, studentId } = user;
+
+    // 3) If studentId is somehow undefined, also bail
+    if (!studentId) {
+      throw new Error("Missing student ID");
+    }
+
+    // 4) Fire off your Appwrite call
+    await submitExamAnswers({
+      examId:      examData.$id!, // we already checked examData above
+      userId,
+      studentName,
+      studentEmail,
+      studentId,
+      answers,
+    });
+
+    setExamCompleted(true);
+    toast({
+      title: "Submitted",
+      description: "Your exam has been submitted.",
+    });
+  } catch (err) {
+    console.error("Submit error:", err);
+    toast({
+      title: "Submit failed",
+      description: "Please try again.",
+      variant: "destructive",
+    });
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   if (!examData) {
     return (
