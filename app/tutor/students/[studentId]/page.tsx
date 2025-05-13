@@ -1,20 +1,41 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { getStudentSubmissions } from "@/lib/exam-service"
+import { fetchExams, getStudentSubmissions } from "@/lib/exam-service"
 import { ProtectedRoute } from "@/components/protected-route"
 import { useAuth } from "@/lib/auth-context"
 import type { Submission } from "@/lib/appwrite"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts"
 import { ChartContainer } from "@/components/ui/chart"
 import { format } from "date-fns"
 
-export default function StudentPerformancePage({ params }: { params: { studentId: string } }) {
-  const [submissions, setSubmissions] = useState<Submission[]>([])
+type SubmissionWithTitle = Submission & { examTitle: string }
+
+export default function StudentPerformancePage({
+  params,
+}: {
+  params: { studentId: string }
+}) {
+  const [submissions, setSubmissions] = useState<SubmissionWithTitle[]>([])
   const [loading, setLoading] = useState(true)
   const [studentName, setStudentName] = useState("")
   const router = useRouter()
@@ -22,74 +43,39 @@ export default function StudentPerformancePage({ params }: { params: { studentId
   const { user } = useAuth()
 
   useEffect(() => {
-    const loadData = async () => {
+    async function loadData() {
       try {
-        // Check if Appwrite is configured
-        if (!process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || !process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID) {
-          // Fallback for when Appwrite is not configured
-          console.warn("Appwrite not configured, using mock data")
+        // 1️⃣ Fetch this student's submissions
+        const subs = await getStudentSubmissions(params.studentId)
 
-          // Mock submissions for this student
-          const mockSubmissions: Submission[] = [
-            {
-              $id: "sub1",
-              id: "sub1",
-              examId: "exam1",
-              examTitle: "Mathematics Midterm",
-              userId: "student1",
-              studentName: "John Doe",
-              studentEmail: "john@example.com",
-              studentId: params.studentId,
-              answers: { q1: "4", q2: "3.14" },
-              score: 85,
-              submittedAt: new Date(Date.now() - 30 * 86400000).toISOString(), // 30 days ago
-            },
-            {
-              $id: "sub3",
-              id: "sub3",
-              examId: "exam2",
-              examTitle: "Physics Quiz",
-              userId: "student1",
-              studentName: "John Doe",
-              studentEmail: "john@example.com",
-              studentId: params.studentId,
-              answers: { q1: "Newton", q2: "KE = ½mv²" },
-              score: 75,
-              submittedAt: new Date(Date.now() - 20 * 86400000).toISOString(), // 20 days ago
-            },
-            {
-              $id: "sub4",
-              id: "sub4",
-              examId: "exam3",
-              examTitle: "Programming Fundamentals",
-              userId: "student1",
-              studentName: "John Doe",
-              studentEmail: "john@example.com",
-              studentId: params.studentId,
-              answers: { q1: "Hyper Text Markup Language", q2: "Character" },
-              score: 90,
-              submittedAt: new Date(Date.now() - 10 * 86400000).toISOString(), // 10 days ago
-            },
-          ]
+        // 2️⃣ Fetch ALL exams once, build a map examId → title
+        const exams = await fetchExams()
+        const titleMap: Record<string, string> = exams.reduce(
+          (acc, exam) => {
+            if (exam.$id) acc[exam.$id] = exam.title
+            return acc
+          },
+          {} as Record<string, string>
+        )
 
-          setSubmissions(mockSubmissions)
-          setStudentName(mockSubmissions[0].studentName)
-          setLoading(false)
-          return
-        }
+        // 3️⃣ Attach the title to each submission
+        const subsWithTitle: SubmissionWithTitle[] = subs.map((sub) => ({
+          ...sub,
+          examTitle: titleMap[sub.examId] ?? "Unknown Exam",
+        }))
 
-        // Fetch submissions for this student
-        const submissionsData = await getStudentSubmissions(params.studentId)
-        setSubmissions(submissionsData)
+        setSubmissions(subsWithTitle)
 
-        if (submissionsData.length > 0) {
-          setStudentName(submissionsData[0].studentName)
+        // 4️⃣ Derive student name for the header
+        if (subsWithTitle.length > 0) {
+          setStudentName(subsWithTitle[0].studentName)
         }
       } catch (error) {
         console.error("Error loading student performance:", error)
         toast({
           title: "Error",
-          description: "Failed to load student performance data. Please try again.",
+          description:
+            "Failed to load student performance data. Please try again.",
           variant: "destructive",
         })
         router.push("/tutor/dashboard")
@@ -114,135 +100,116 @@ export default function StudentPerformancePage({ params }: { params: { studentId
       <div className="container py-8">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold">Student Performance</h1>
-          <Button variant="outline" onClick={() => router.push("/tutor/dashboard")}>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/tutor/dashboard")}
+          >
             Back to Dashboard
           </Button>
         </div>
         <Card>
           <CardContent className="py-8">
-            <p className="text-center text-muted-foreground">No submissions found for this student.</p>
+            <p className="text-center text-muted-foreground">
+              No submissions found for this student.
+            </p>
           </CardContent>
         </Card>
       </div>
     )
   }
 
-  // Sort submissions by date
-  const sortedSubmissions = [...submissions].sort(
-    (a, b) => new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime(),
+  // Sort chronologically
+  const sorted = [...submissions].sort(
+    (a, b) =>
+      new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime()
   )
 
-  // Prepare data for the performance chart
-  const performanceData = sortedSubmissions.map((submission) => ({
-    date: submission.submittedAt,
-    exam: submission.examTitle,
-    score: submission.score || 0,
+  // Chart data
+  const performanceData = sorted.map((sub) => ({
+    date: sub.submittedAt,
+    exam: sub.examTitle,
+    score: sub.score ?? 0,
   }))
 
-  // Calculate average score
-  const averageScore = submissions.reduce((acc, sub) => acc + (sub.score || 0), 0) / submissions.length
-
-  // Calculate highest and lowest scores
-  const highestScore = Math.max(...submissions.map((sub) => sub.score || 0))
-  const lowestScore = Math.min(...submissions.map((sub) => sub.score || 0))
+  // Stats
+  const avg =
+    submissions.reduce((sum, s) => sum + (s.score ?? 0), 0) /
+    submissions.length
+  const high = Math.max(...submissions.map((s) => s.score ?? 0))
+  const low = Math.min(...submissions.map((s) => s.score ?? 0))
 
   return (
     <ProtectedRoute allowedRoles={["tutor"]}>
       <div className="container py-8">
+        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold">{studentName}'s Performance</h1>
+            <h1 className="text-3xl font-bold">
+              {studentName}’s Performance
+            </h1>
             <p className="text-muted-foreground">
               Student ID: {params.studentId} • {submissions.length} exams taken
             </p>
           </div>
-          <Button variant="outline" onClick={() => router.push("/tutor/dashboard")}>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/tutor/dashboard")}
+          >
             Back to Dashboard
           </Button>
         </div>
 
+        {/* Stats cards */}
         <div className="grid gap-6 md:grid-cols-3 mb-8">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Average Score</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{averageScore.toFixed(1)}%</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Highest Score</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{highestScore}%</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Lowest Score</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{lowestScore}%</div>
-            </CardContent>
-          </Card>
+          {[["Average Score", avg], ["Highest Score", high], ["Lowest Score", low]].map(
+            ([label, val]) => (
+              <Card key={label}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">{label}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {Number(val).toFixed(1)}%
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          )}
         </div>
 
+        {/* Line chart */}
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Performance Over Time</CardTitle>
-            <CardDescription>Score progression across different exams</CardDescription>
+            <CardDescription>
+              Score progression across different exams
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[400px]">
               <ChartContainer
                 config={{
-                  score: {
-                    label: "Score (%)",
-                    color: "hsl(var(--chart-1))",
-                  },
+                  score: { label: "Score (%)", color: "hsl(var(--chart-1))" },
                 }}
                 className="h-full"
               >
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={performanceData} margin={{ top: 20, right: 30, left: 20, bottom: 70 }}>
+                  <LineChart
+                    data={performanceData}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
                       angle={-45}
                       textAnchor="end"
                       height={70}
-                      tickFormatter={(value) => format(new Date(value), "MMM dd, yyyy")}
+                      tickFormatter={(v) =>
+                        format(new Date(v), "MMM dd, yyyy")
+                      }
                     />
                     <YAxis domain={[0, 100]} />
-                    <Tooltip
-                      content={({ active, payload }) => {
-                        if (active && payload && payload.length) {
-                          const data = payload[0].payload
-                          return (
-                            <div className="rounded-lg border bg-background p-2 shadow-sm">
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="flex flex-col">
-                                  <span className="text-[0.70rem] uppercase text-muted-foreground">Date</span>
-                                  <span className="font-bold text-muted-foreground">
-                                    {format(new Date(data.date), "MMM dd, yyyy")}
-                                  </span>
-                                </div>
-                                <div className="flex flex-col">
-                                  <span className="text-[0.70rem] uppercase text-muted-foreground">Score</span>
-                                  <span className="font-bold">{data.score}%</span>
-                                </div>
-                                <div className="flex flex-col col-span-2">
-                                  <span className="text-[0.70rem] uppercase text-muted-foreground">Exam</span>
-                                  <span className="font-bold">{data.exam}</span>
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        }
-                        return null
-                      }}
-                    />
+                    <Tooltip />
                     <Legend />
                     <Line
                       type="monotone"
@@ -260,6 +227,7 @@ export default function StudentPerformancePage({ params }: { params: { studentId
           </CardContent>
         </Card>
 
+        {/* Exam history table */}
         <Card>
           <CardHeader>
             <CardTitle>Exam History</CardTitle>
@@ -277,36 +245,46 @@ export default function StudentPerformancePage({ params }: { params: { studentId
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedSubmissions.map((submission) => (
-                    <tr key={submission.$id} className="border-b hover:bg-muted/50">
-                      <td className="py-3 px-4">{submission.examTitle}</td>
+                  {sorted.map((sub) => (
+                    <tr
+                      key={sub.$id}
+                      className="border-b hover:bg-muted/50"
+                    >
+                      <td className="py-3 px-4">{sub.examTitle}</td>
                       <td className="py-3 px-4">
-                        {new Date(submission.submittedAt).toLocaleDateString("en-US", {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {new Date(sub.submittedAt).toLocaleDateString(
+                          "en-US",
+                          {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <div
                           className={`font-medium ${
-                            (submission.score || 0) >= 80
+                            (sub.score || 0) >= 80
                               ? "text-green-600"
-                              : (submission.score || 0) >= 60
-                                ? "text-amber-600"
-                                : "text-red-600"
+                              : (sub.score || 0) >= 60
+                              ? "text-amber-600"
+                              : "text-red-600"
                           }`}
                         >
-                          {submission.score !== undefined ? `${submission.score}%` : "Not graded"}
+                          {sub.score !== undefined
+                            ? `${sub.score}%`
+                            : "Not graded"}
                         </div>
                       </td>
                       <td className="py-3 px-4">
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => router.push(`/tutor/submissions/${submission.$id}`)}
+                          onClick={() =>
+                            router.push(`/tutor/submissions/${sub.$id}`)
+                          }
                         >
                           Review
                         </Button>
