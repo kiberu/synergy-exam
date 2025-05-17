@@ -4,6 +4,7 @@ import {
   listDocuments,
   getDocument,
   updateDocument,
+  deleteDocument,
   type Exam,
   type Question,
   type Submission,
@@ -53,6 +54,7 @@ export async function createExam(examData: {
   createdBy: string
   questions: Omit<Question, "examId" | "$id" | "order">[]
 }) {
+  console.log(examData)
   try {
     // Create the exam
     const exam = (await createDocument(
@@ -87,6 +89,68 @@ export async function createExam(examData: {
   }
 }
 
+export async function editExam(examId: string, examData: {
+  title: string
+  duration: number
+  questions: (Question & { $id?: string })[]
+}) {
+  try {
+    // Update exam main info
+    const updatedExam = await updateDocument(COLLECTIONS.EXAMS, examId, {
+      title: examData.title,
+      duration: examData.duration,
+    })
+
+    // Fetch existing questions for exam
+    const existingQuestions = await listDocuments(COLLECTIONS.QUESTIONS, [
+      Query.equal("examId", examId),
+    ])
+
+    const existingQuestionIds = existingQuestions.documents.map((q) => q.$id)
+
+    // Separate questions into update vs create
+    const toUpdate = examData.questions.filter((q) => q.$id && existingQuestionIds.includes(q.$id))
+    const toCreate = examData.questions.filter((q) => !q.$id)
+
+    // Update existing questions
+    await Promise.all(
+      toUpdate.map((q, idx) =>
+        updateDocument(COLLECTIONS.QUESTIONS, q.$id!, {
+          text: q.text,
+          type: q.type,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          order: idx,
+        })
+      )
+    )
+
+    // Create new questions
+    await Promise.all(
+      toCreate.map((q, idx) =>
+        createDocument(COLLECTIONS.QUESTIONS, {
+          examId,
+          text: q.text,
+          type: q.type,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          order: toUpdate.length + idx,
+        })
+      )
+    )
+
+    // Optionally: delete removed questions (not in the updated list)
+    const updatedIds = toUpdate.map((q) => q.$id)
+    const toDelete = existingQuestionIds.filter((id) => !updatedIds.includes(id))
+    await Promise.all(toDelete.map((id) => deleteDocument(COLLECTIONS.QUESTIONS, id!)))
+
+    return updatedExam
+  } catch (error) {
+    console.error("Error editing exam:", error)
+    throw error
+  }
+}
+
 // Submit exam answers
 export async function submitExamAnswers(submissionData: {
   examId: string
@@ -97,6 +161,7 @@ export async function submitExamAnswers(submissionData: {
   answers: Record<string, string>
 }) {
   try {
+    console.log("Submitting exam answers:", submissionData)
     // Create the submission
     const submission = await createDocument(
       COLLECTIONS.SUBMISSIONS,
@@ -106,6 +171,8 @@ export async function submitExamAnswers(submissionData: {
       },
       submissionData.userId,
     )
+
+    console.log("Submission created:", submission)
 
     return submission
   } catch (error) {

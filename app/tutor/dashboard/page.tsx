@@ -191,7 +191,7 @@ export default function TutorDashboard() {
                       <Button
                         variant="outline"
                         className="flex-1"
-                        onClick={() => router.push(`/tutor/exams/${exam.$id}`)}
+                        onClick={() => router.push(`/tutor/exams/${exam.$id}/edit`)}
                       >
                         Edit
                       </Button>
